@@ -1,4 +1,4 @@
-import { App, Editor, MarkdownView, Modal, Notice, Plugin, PluginSettingTab, Setting, ItemView, WorkspaceLeaf, requestUrl  } from 'obsidian';
+import { App, Editor, MarkdownView, Modal, Notice, Plugin, PluginSettingTab, Setting, ItemView, WorkspaceLeaf, requestUrl } from 'obsidian';
 
 const VIEW_TYPE_SIDEBAR = "my-dashboard-sidebar-view";
 
@@ -99,7 +99,7 @@ export default class MyPlugin extends Plugin {
 		}
 	}
 
-async fetchDashboardData(showNotice: boolean = true): Promise<boolean> {
+	async fetchDashboardData(showNotice: boolean = true): Promise<boolean> {
 		if (!this.settings.apiKey) {
 			new Notice('Please set your API key in plugin settings');
 			return false;
@@ -307,7 +307,12 @@ class SidebarView extends ItemView {
 				padding: 8px;
 				border-radius: 4px;
 				margin-bottom: 8px;
+			}
+			.calendar-event-personal {
 				border-left: 3px solid var(--interactive-accent);
+			}
+			.calendar-event-family {
+				border-left: 3px solid var(--color-purple);
 			}
 			.event-time {
 				font-size: 11px;
@@ -370,55 +375,7 @@ class SidebarView extends ItemView {
 		if (this.plugin.settings.cachedData) {
 			const data = this.plugin.settings.cachedData.data;
 
-			// Weather Section
-			const weatherSection = container.createDiv({ cls: 'dashboard-section' });
-			weatherSection.createEl('h4', { text: '🌤️ Weather' });
-			const weatherBox = weatherSection.createDiv({ cls: 'weather-box' });
-			weatherBox.createEl('div', { text: `📍 ${data.weather.location}` });
-			weatherBox.createEl('div', { text: `🌡️ Current: ${data.weather.currentTemp}` });
-			weatherBox.createEl('div', { text: `📈 High: ${data.weather.todayHigh} | 📉 Low: ${data.weather.todayLow}` });
-			weatherBox.createEl('div', { text: `🌧️ ${data.weather.nextRain}` });
-
-			// Next 48 Hours Section
-			const next48Section = container.createDiv({ cls: 'dashboard-section' });
-			next48Section.createEl('h4', { text: '📅 Next 48 Hours' });
-			
-			if (data.calendar.next48Hours.length === 0) {
-				next48Section.createEl('p', { text: 'No events scheduled', cls: 'text-muted' });
-			} else {
-				data.calendar.next48Hours.forEach(event => {
-					const eventBox = next48Section.createDiv({ cls: 'calendar-event' });
-					eventBox.createEl('div', { text: event.summary });
-					const timeText = this.formatEventTime(event.start, event.end);
-					eventBox.createDiv({ text: timeText, cls: 'event-time' });
-				});
-			}
-
-			// Upcoming Weekend Section
-			const weekendSection = container.createDiv({ cls: 'dashboard-section' });
-			weekendSection.createEl('h4', { text: `🎉 ${data.calendar.upcomingWeekend.date}` });
-			
-			if (data.calendar.upcomingWeekend.events.length === 0) {
-				weekendSection.createEl('p', { text: 'No events scheduled', cls: 'text-muted' });
-			} else {
-				data.calendar.upcomingWeekend.events.forEach(event => {
-					const eventBox = weekendSection.createDiv({ cls: 'calendar-event' });
-					eventBox.createEl('div', { text: event.summary });
-					const timeText = this.formatEventTime(event.start, event.end);
-					eventBox.createDiv({ text: timeText, cls: 'event-time' });
-				});
-			}
-		} else {
-			container.createEl('p', { text: 'No data available. Click sync to load.' });
-		}
-
-		// Values Section
-		const valuesSection = container.createDiv({ cls: 'dashboard-section' });
-		valuesSection.createEl('h4', { text: '💪 Daily Reminder' });
-		const valuesBox = valuesSection.createDiv({ cls: 'values-box' });
-		valuesBox.createEl('p', { text: VALUES[this.currentValueIndex] });
-
-		// Sleep Countdown (only after 8 PM)
+					// Sleep Countdown (only after 8 PM)
 		const now = new Date();
 		const hour = now.getHours();
 		
@@ -450,6 +407,61 @@ class SidebarView extends ItemView {
 				});
 			}
 		}
+
+			// Weather Section
+			const weatherSection = container.createDiv({ cls: 'dashboard-section' });
+			weatherSection.createEl('h4', { text: '🌤️ Weather' });
+			const weatherBox = weatherSection.createDiv({ cls: 'weather-box' });
+			weatherBox.createEl('div', { text: `🌡️ Current: ${data.weather.currentTemp}` });
+			weatherBox.createEl('div', { text: `📈 High: ${data.weather.todayHigh} | 📉 Low: ${data.weather.todayLow}` });
+			weatherBox.createEl('div', { text: `🌧️ ${data.weather.nextRain}` });
+
+			// Next 48 Hours Section
+			const next48Section = container.createDiv({ cls: 'dashboard-section' });
+			next48Section.createEl('h4', { text: '📅 Next 48 Hours' });
+			
+			if (data.calendar.next48Hours.length === 0) {
+				next48Section.createEl('p', { text: 'No events scheduled', cls: 'text-muted' });
+			} else {
+				data.calendar.next48Hours.forEach(event => {
+					const calendarClass = event.calendar === 'deltamaze@gmail.com' 
+						? 'calendar-event calendar-event-personal' 
+						: 'calendar-event calendar-event-family';
+					const eventBox = next48Section.createDiv({ cls: calendarClass });
+					eventBox.createEl('div', { text: event.summary });
+					const timeText = this.formatEventTime(event.start, event.end);
+					eventBox.createDiv({ text: timeText, cls: 'event-time' });
+				});
+			}
+
+			// Upcoming Weekend Section
+			const weekendSection = container.createDiv({ cls: 'dashboard-section' });
+			weekendSection.createEl('h4', { text: `🎉 ${data.calendar.upcomingWeekend.date}` });
+			
+			if (data.calendar.upcomingWeekend.events.length === 0) {
+				weekendSection.createEl('p', { text: 'No events scheduled', cls: 'text-muted' });
+			} else {
+				data.calendar.upcomingWeekend.events.forEach(event => {
+					const calendarClass = event.calendar === 'deltamaze@gmail.com' 
+						? 'calendar-event calendar-event-personal' 
+						: 'calendar-event calendar-event-family';
+					const eventBox = weekendSection.createDiv({ cls: calendarClass });
+					eventBox.createEl('div', { text: event.summary });
+					const timeText = this.formatEventTime(event.start, event.end);
+					eventBox.createDiv({ text: timeText, cls: 'event-time' });
+				});
+			}
+		} else {
+			container.createEl('p', { text: 'No data available. Click sync to load.' });
+		}
+
+		// Values Section
+		const valuesSection = container.createDiv({ cls: 'dashboard-section' });
+		valuesSection.createEl('h4', { text: '💪 Daily Reminder' });
+		const valuesBox = valuesSection.createDiv({ cls: 'values-box' });
+		valuesBox.createEl('p', { text: VALUES[this.currentValueIndex] });
+
+
 	}
 
 	getTimeSince(timestamp: number): string {
