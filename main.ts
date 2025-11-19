@@ -3,7 +3,7 @@ import { App, Editor, MarkdownView, Modal, Notice, Plugin, PluginSettingTab, Set
 // Remember to rename these classes and interfaces!
 
 // Add a constant for your view type
-const VIEW_TYPE_EXAMPLE = "example-view";
+const VIEW_TYPE_SIDEBAR = "my-dashboard-sidebar-view";
 
 
 interface MyPluginSettings {
@@ -22,16 +22,16 @@ export default class MyPlugin extends Plugin {
 
 		// Register the custom view
 		this.registerView(
-			VIEW_TYPE_EXAMPLE,
-			(leaf) => new ExampleView(leaf)
+			VIEW_TYPE_SIDEBAR,
+			(leaf) => new SidebarView(leaf)
 		);
 
 
 
 		// Add command to open the view
 		this.addCommand({
-			id: 'open-example-view',
-			name: 'Open Example View',
+			id: 'open-sidebar-view',
+			name: 'Open Sidebar View',
 			callback: () => {
 				this.activateView();
 			}
@@ -41,7 +41,7 @@ export default class MyPlugin extends Plugin {
 
 
 		// This adds a settings tab so the user can configure various aspects of the plugin
-		this.addSettingTab(new SampleSettingTab(this.app, this));
+		this.addSettingTab(new SettingTab(this.app, this));
 
 		// If the plugin hooks up any global DOM events (on parts of the app that doesn't belong to this plugin)
 		// Using this function will automatically remove the event listener when this plugin is disabled.
@@ -57,7 +57,7 @@ export default class MyPlugin extends Plugin {
 		const { workspace } = this.app;
 
 		let leaf: WorkspaceLeaf | null = null;
-		const leaves = workspace.getLeavesOfType(VIEW_TYPE_EXAMPLE);
+		const leaves = workspace.getLeavesOfType(VIEW_TYPE_SIDEBAR);
 
 		if (leaves.length > 0) {
 			// A leaf with our view already exists, use that
@@ -67,7 +67,7 @@ export default class MyPlugin extends Plugin {
 			// in the right sidebar for it
 			leaf = workspace.getRightLeaf(false);
 			if (leaf) {
-				await leaf.setViewState({ type: VIEW_TYPE_EXAMPLE, active: true });
+				await leaf.setViewState({ type: VIEW_TYPE_SIDEBAR, active: true });
 			}
 		}
 
@@ -94,7 +94,7 @@ export default class MyPlugin extends Plugin {
 
 
 
-class SampleSettingTab extends PluginSettingTab {
+class SettingTab extends PluginSettingTab {
 	plugin: MyPlugin;
 
 	constructor(app: App, plugin: MyPlugin) {
@@ -121,17 +121,17 @@ class SampleSettingTab extends PluginSettingTab {
 }
 
 // Custom view for the sidebar
-class ExampleView extends ItemView {
+class SidebarView extends ItemView {
 	constructor(leaf: WorkspaceLeaf) {
 		super(leaf);
 	}
 
 	getViewType() {
-		return VIEW_TYPE_EXAMPLE;
+		return VIEW_TYPE_SIDEBAR;
 	}
 
 	getDisplayText() {
-		return "Example view";
+		return "Sidebar view";
 	}
 
 	async onOpen() {
