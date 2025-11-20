@@ -34,14 +34,32 @@ interface CachedData {
 	timestamp: number;
 }
 
+interface TrackedTask {
+	task: string;
+	note: string;
+	updated: string;
+}
+
+interface DebugInfo {
+	fileFound: boolean;
+	filePath: string;
+	totalLines: number;
+	tableRowsFound: number;
+	trackedTasksFound: number;
+	errorMessage?: string;
+	sampleRows?: string[];
+}
+
 interface MyPluginSettings {
 	apiKey: string;
 	cachedData: CachedData | null;
+	questLogPath: string;
 }
 
 const DEFAULT_SETTINGS: MyPluginSettings = {
 	apiKey: '',
-	cachedData: null
+	cachedData: null,
+	questLogPath: 'Projects/QuestLog.md'
 }
 
 const VALUES = [
@@ -142,6 +160,129 @@ export default class MyPlugin extends Plugin {
 		}
 	}
 
+	async getTrackedTasks(): Promise<{ tasks: TrackedTask[], debug: DebugInfo }> {
+		const debug: DebugInfo = {
+			fileFound: false,
+			filePath: this.settings.questLogPath,
+			totalLines: 0,
+			tableRowsFound: 0,
+			trackedTasksFound: 0,
+			sampleRows: []
+		};
+
+		try {
+			console.log('=== DEBUGGING TRACKED TASKS ===');
+			console.log('Looking for QuestLog at path:', this.settings.questLogPath);
+			
+			const file = this.app.vault.getFileByPath(this.settings.questLogPath);
+			if (!file) {
+				debug.errorMessage = `File not found at: ${this.settings.questLogPath}`;
+				console.log('❌ QuestLog file not found at:', this.settings.questLogPath);
+				console.log('Available files in vault:', this.app.vault.getFiles().map(f => f.path));
+				return { tasks: [], debug };
+			}
+
+			debug.fileFound = true;
+			console.log('✅ File found!');
+			const content = await this.app.vault.read(file);
+			console.log('File content length:', content.length);
+			console.log('First 500 chars:', content.substring(0, 500));
+			
+			const lines = content.split('\n');
+			debug.totalLines = lines.length;
+			console.log('Total lines:', lines.length);
+			
+			const trackedTasks: TrackedTask[] = [];
+			let inFirstTable = false;
+			let headerPassed = false;
+			let lineNumber = 0;
+			
+			for (const line of lines) {
+				lineNumber++;
+				
+				// Check if we've hit the Done Log section
+				if (line.includes('# Done Log')) {
+					console.log(`Found Done Log at line ${lineNumber}, stopping here`);
+					if (debug.sampleRows) debug.sampleRows.push(`Done Log found at line ${lineNumber}`);
+					break;
+				}
+				
+				// Detect table rows
+				if (line.startsWith('|') && line.includes('|')) {
+					console.log(`Line ${lineNumber} is a table row:`, line);
+					
+					if (!inFirstTable) {
+						inFirstTable = true;
+						console.log('  -> This is the header row, skipping');
+						if (debug.sampleRows) debug.sampleRows.push(`Line ${lineNumber}: Header row`);
+						continue; // Skip header row
+					}
+					
+					if (!headerPassed && line.includes('---')) {
+						headerPassed = true;
+						console.log('  -> This is the separator row, skipping');
+						if (debug.sampleRows) debug.sampleRows.push(`Line ${lineNumber}: Separator row`);
+						continue; // Skip separator row
+					}
+					
+					if (headerPassed) {
+						debug.tableRowsFound++;
+						// Split by | and trim, but DON'T filter out empty columns
+						// We need to keep empty columns to maintain correct indices
+						const allColumns = line.split('|').map(col => col.trim());
+						// Remove first and last elements (they're empty because line starts and ends with |)
+						const columns = allColumns.slice(1, -1);
+						
+						console.log(`  -> Parsed ${columns.length} columns:`, columns);
+						
+						// Store sample info for first 5 rows
+						if (debug.sampleRows && debug.sampleRows.length < 8) {
+							debug.sampleRows.push(`Line ${lineNumber}: ${columns.length} cols, Tracked="${columns[3]}", Task="${columns[0]?.substring(0, 40)}"`);
+						}
+						
+						// Columns: Task (0), Jira (1), Sched (2), Tracked (3), Updated (4)
+						if (columns.length >= 4) {
+							let task = columns[0];
+
+							// const note = columns[1];
+							const tracked = columns[3];
+							const updated = columns.length >= 5 ? columns[4] : '';
+							// I want my note to split up the task if it contains a space, I want everything before the first space as the task, and everything after the first space as a note
+							const note = task.includes(' ') ? task.substring(task.indexOf(' ') + 1) : '';
+							task = task.includes(' ') ? task.substring(0, task.indexOf(' ')) : task;
+							console.log(`  -> Task: "${task}", Tracked: "${tracked}"`);
+							
+							// Only include if Tracked = Y and task is not empty
+							if (tracked === 'Y' && task && task.trim().length > 0) {
+								console.log(`  -> ✅ TRACKED! Adding to list`);
+								debug.trackedTasksFound++;
+								trackedTasks.push({
+									task: task,
+									note: note,
+									updated: updated
+								});
+							} else {
+								console.log(`  -> ❌ Not tracked (tracked="${tracked}", task.length=${task?.length})`);
+							}
+						} else {
+							console.log(`  -> Skipping - only ${columns.length} columns`);
+						}
+					}
+				}
+			}
+			
+			console.log('=== FINAL RESULTS ===');
+			console.log('Total tracked tasks found:', trackedTasks.length);
+			console.log('Tracked tasks:', trackedTasks);
+			
+			return { tasks: trackedTasks, debug };
+		} catch (error) {
+			debug.errorMessage = `Error: ${error.message}`;
+			console.error('❌ Error reading QuestLog:', error);
+			return { tasks: [], debug };
+		}
+	}
+
 	updateOpenViews() {
 		const leaves = this.app.workspace.getLeavesOfType(VIEW_TYPE_SIDEBAR);
 		leaves.forEach(leaf => {
@@ -209,6 +350,19 @@ class SettingTab extends PluginSettingTab {
 					this.plugin.settings.apiKey = value;
 					await this.plugin.saveSettings();
 				}));
+
+		new Setting(containerEl)
+			.setName('QuestLog Path')
+			.setDesc('Relative path to your QuestLog.md file from vault root (e.g., Projects/QuestLog.md)')
+			.addText(text => text
+				.setPlaceholder('Projects/QuestLog.md')
+				.setValue(this.plugin.settings.questLogPath)
+				.onChange(async (value) => {
+					this.plugin.settings.questLogPath = value;
+					await this.plugin.saveSettings();
+					// Refresh the view to show updated tasks
+					this.plugin.updateOpenViews();
+				}));
 	}
 }
 
@@ -256,7 +410,7 @@ class SidebarView extends ItemView {
 		}
 	}
 
-	refresh() {
+	async refresh() {
 		const container = this.containerEl.children[1];
 		container.empty();
 		container.addClass('dashboard-view');
@@ -301,6 +455,21 @@ class SidebarView extends ItemView {
 			}
 			.weather-box > div {
 				margin: 4px 0;
+			}
+			.tracked-task {
+				background: var(--background-secondary);
+				padding: 8px;
+				border-radius: 4px;
+				margin-bottom: 8px;
+				border-left: 3px solid var(--color-green);
+			}
+			.task-name {
+				font-weight: 500;
+				margin-bottom: 4px;
+			}
+			.task-meta {
+				font-size: 11px;
+				color: var(--text-muted);
 			}
 			.calendar-event {
 				background: var(--background-secondary);
@@ -375,38 +544,38 @@ class SidebarView extends ItemView {
 		if (this.plugin.settings.cachedData) {
 			const data = this.plugin.settings.cachedData.data;
 
-					// Sleep Countdown (only after 8 PM)
-		const now = new Date();
-		const hour = now.getHours();
-		
-		if (hour >= 20 || hour < 6) { // After 8 PM or before 6 AM
-			const sleepSection = container.createDiv({ cls: 'dashboard-section' });
-			sleepSection.createEl('h4', { text: '😴 Sleep Countdown' });
-			const sleepBox = sleepSection.createDiv({ cls: 'sleep-countdown' });
+			// Sleep Countdown (only after 8 PM)
+			const now = new Date();
+			const hour = now.getHours();
 			
-			// Create wake time for 6:15 AM Central Time
-			const wakeTime = new Date();
-			wakeTime.setHours(6, 15, 0, 0);
-			
-			// If current time is past 6:15 AM, set wake time to tomorrow
-			if (now > wakeTime) {
-				wakeTime.setDate(wakeTime.getDate() + 1);
+			if (hour >= 20 || hour < 6) { // After 8 PM or before 6 AM
+				const sleepSection = container.createDiv({ cls: 'dashboard-section' });
+				sleepSection.createEl('h4', { text: '😴 Sleep Countdown' });
+				const sleepBox = sleepSection.createDiv({ cls: 'sleep-countdown' });
+				
+				// Create wake time for 6:15 AM Central Time
+				const wakeTime = new Date();
+				wakeTime.setHours(6, 15, 0, 0);
+				
+				// If current time is past 6:15 AM, set wake time to tomorrow
+				if (now > wakeTime) {
+					wakeTime.setDate(wakeTime.getDate() + 1);
+				}
+				
+				const diff = wakeTime.getTime() - now.getTime();
+				const hours = Math.floor(diff / (1000 * 60 * 60));
+				const minutes = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60));
+				
+				sleepBox.createEl('div', { text: 'Hours until wake time (6:15 AM)' });
+				sleepBox.createEl('div', { text: `${hours}h ${minutes}m`, cls: 'sleep-hours' });
+				
+				if (hours < 7) {
+					sleepBox.createEl('div', { 
+						text: '⚠️ You won\'t get 7+ hours of sleep!',
+						cls: 'sleep-warning'
+					});
+				}
 			}
-			
-			const diff = wakeTime.getTime() - now.getTime();
-			const hours = Math.floor(diff / (1000 * 60 * 60));
-			const minutes = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60));
-			
-			sleepBox.createEl('div', { text: 'Hours until wake time (6:15 AM)' });
-			sleepBox.createEl('div', { text: `${hours}h ${minutes}m`, cls: 'sleep-hours' });
-			
-			if (hours < 7) {
-				sleepBox.createEl('div', { 
-					text: '⚠️ You won\'t get 7+ hours of sleep!',
-					cls: 'sleep-warning'
-				});
-			}
-		}
 
 			// Weather Section
 			const weatherSection = container.createDiv({ cls: 'dashboard-section' });
@@ -415,6 +584,56 @@ class SidebarView extends ItemView {
 			weatherBox.createEl('div', { text: `🌡️ Current: ${data.weather.currentTemp}` });
 			weatherBox.createEl('div', { text: `📈 High: ${data.weather.todayHigh} | 📉 Low: ${data.weather.todayLow}` });
 			weatherBox.createEl('div', { text: `🌧️ ${data.weather.nextRain}` });
+
+			// Tracked Tasks Section
+			const { tasks: trackedTasks, debug } = await this.plugin.getTrackedTasks();
+			const trackedSection = container.createDiv({ cls: 'dashboard-section' });
+			trackedSection.createEl('h4', { text: '✅ Tracked Tasks' });
+			
+			// Debug Info Display
+			// const debugBox = trackedSection.createDiv({ 
+			// 	cls: 'weather-box',
+			// 	attr: { style: 'font-size: 11px; font-family: monospace; background: var(--background-modifier-error-rgb); border-left: 3px solid var(--color-orange);' }
+			// });
+			// debugBox.createEl('div', { text: `🔍 DEBUG INFO`, attr: { style: 'font-weight: bold; margin-bottom: 8px;' } });
+			// debugBox.createEl('div', { text: `File Path: ${debug.filePath}` });
+			// debugBox.createEl('div', { text: `File Found: ${debug.fileFound ? '✅ Yes' : '❌ No'}` });
+			// if (debug.fileFound) {
+			// 	debugBox.createEl('div', { text: `Total Lines: ${debug.totalLines}` });
+			// 	debugBox.createEl('div', { text: `Table Rows Found: ${debug.tableRowsFound}` });
+			// 	debugBox.createEl('div', { text: `Tracked Tasks Found: ${debug.trackedTasksFound}` });
+			// }
+			// if (debug.errorMessage) {
+			// 	debugBox.createEl('div', { text: `Error: ${debug.errorMessage}`, attr: { style: 'color: var(--color-red); font-weight: bold;' } });
+			// }
+			// if (debug.sampleRows && debug.sampleRows.length > 0) {
+			// 	debugBox.createEl('div', { text: `Sample Rows:`, attr: { style: 'margin-top: 8px; font-weight: bold;' } });
+			// 	debug.sampleRows.forEach(row => {
+			// 		debugBox.createEl('div', { text: `  ${row}`, attr: { style: 'margin-left: 8px;' } });
+			// 	});
+			// }
+			
+			if (trackedTasks.length === 0) {
+				trackedSection.createEl('p', { text: 'No tracked tasks', cls: 'text-muted' });
+			} else {
+				trackedTasks.forEach(task => {
+					const taskBox = trackedSection.createDiv({ cls: 'tracked-task' });
+					
+					// Remove the [[ ]] if present for cleaner display
+					const cleanTaskName = task.task.replace(/\[\[|\]\]/g, '');
+					taskBox.createEl('div', { text: cleanTaskName, cls: 'task-name' });
+					
+					const metaParts = [];
+					if (task.note) {
+						metaParts.push(`- ${task.note}`);
+					}
+					
+					
+					if (metaParts.length > 0) {
+						taskBox.createDiv({ text: metaParts.join(' • '), cls: 'task-meta' });
+					}
+				});
+			}
 
 			// Next 48 Hours Section
 			const next48Section = container.createDiv({ cls: 'dashboard-section' });
@@ -460,8 +679,6 @@ class SidebarView extends ItemView {
 		valuesSection.createEl('h4', { text: '💪 Daily Reminder' });
 		const valuesBox = valuesSection.createDiv({ cls: 'values-box' });
 		valuesBox.createEl('p', { text: VALUES[this.currentValueIndex] });
-
-
 	}
 
 	getTimeSince(timestamp: number): string {
