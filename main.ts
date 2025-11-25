@@ -111,7 +111,7 @@ export default class MyPlugin extends Plugin {
 	async checkAndFetchData() {
 		const now = Date.now();
 		const fourHours = 4 * 60 * 60 * 1000;
-		
+
 		if (!this.settings.cachedData || (now - this.settings.cachedData.timestamp) > fourHours) {
 			await this.fetchDashboardData(false);
 		}
@@ -137,21 +137,21 @@ export default class MyPlugin extends Plugin {
 			}
 
 			const data: DashboardData = response.json;
-			
+
 			this.settings.cachedData = {
 				data: data,
 				timestamp: Date.now()
 			};
-			
+
 			await this.saveSettings();
-			
+
 			if (showNotice) {
 				new Notice('Dashboard data refreshed');
 			}
 
 			// Update the view if it's open
 			this.updateOpenViews();
-			
+
 			return true;
 		} catch (error) {
 			console.error('Error fetching dashboard data:', error);
@@ -173,7 +173,7 @@ export default class MyPlugin extends Plugin {
 		try {
 			console.log('=== DEBUGGING TRACKED TASKS ===');
 			console.log('Looking for QuestLog at path:', this.settings.questLogPath);
-			
+
 			const file = this.app.vault.getFileByPath(this.settings.questLogPath);
 			if (!file) {
 				debug.errorMessage = `File not found at: ${this.settings.questLogPath}`;
@@ -187,44 +187,44 @@ export default class MyPlugin extends Plugin {
 			const content = await this.app.vault.read(file);
 			console.log('File content length:', content.length);
 			console.log('First 500 chars:', content.substring(0, 500));
-			
+
 			const lines = content.split('\n');
 			debug.totalLines = lines.length;
 			console.log('Total lines:', lines.length);
-			
+
 			const trackedTasks: TrackedTask[] = [];
 			let inFirstTable = false;
 			let headerPassed = false;
 			let lineNumber = 0;
-			
+
 			for (const line of lines) {
 				lineNumber++;
-				
+
 				// Check if we've hit the Done Log section
 				if (line.includes('# Done Log')) {
 					console.log(`Found Done Log at line ${lineNumber}, stopping here`);
 					if (debug.sampleRows) debug.sampleRows.push(`Done Log found at line ${lineNumber}`);
 					break;
 				}
-				
+
 				// Detect table rows
 				if (line.startsWith('|') && line.includes('|')) {
 					console.log(`Line ${lineNumber} is a table row:`, line);
-					
+
 					if (!inFirstTable) {
 						inFirstTable = true;
 						console.log('  -> This is the header row, skipping');
 						if (debug.sampleRows) debug.sampleRows.push(`Line ${lineNumber}: Header row`);
 						continue; // Skip header row
 					}
-					
+
 					if (!headerPassed && line.includes('---')) {
 						headerPassed = true;
 						console.log('  -> This is the separator row, skipping');
 						if (debug.sampleRows) debug.sampleRows.push(`Line ${lineNumber}: Separator row`);
 						continue; // Skip separator row
 					}
-					
+
 					if (headerPassed) {
 						debug.tableRowsFound++;
 						// Split by | and trim, but DON'T filter out empty columns
@@ -232,14 +232,14 @@ export default class MyPlugin extends Plugin {
 						const allColumns = line.split('|').map(col => col.trim());
 						// Remove first and last elements (they're empty because line starts and ends with |)
 						const columns = allColumns.slice(1, -1);
-						
+
 						console.log(`  -> Parsed ${columns.length} columns:`, columns);
-						
+
 						// Store sample info for first 5 rows
 						if (debug.sampleRows && debug.sampleRows.length < 8) {
 							debug.sampleRows.push(`Line ${lineNumber}: ${columns.length} cols, Tracked="${columns[3]}", Task="${columns[0]?.substring(0, 40)}"`);
 						}
-						
+
 						// Columns: Task (0), Jira (1), Sched (2), Tracked (3), Updated (4)
 						if (columns.length >= 4) {
 							let task = columns[0];
@@ -251,7 +251,7 @@ export default class MyPlugin extends Plugin {
 							const note = task.includes(' ') ? task.substring(task.indexOf(' ') + 1) : '';
 							task = task.includes(' ') ? task.substring(0, task.indexOf(' ')) : task;
 							console.log(`  -> Task: "${task}", Tracked: "${tracked}"`);
-							
+
 							// Only include if Tracked = Y and task is not empty
 							if (tracked === 'Y' && task && task.trim().length > 0) {
 								console.log(`  -> ✅ TRACKED! Adding to list`);
@@ -270,11 +270,11 @@ export default class MyPlugin extends Plugin {
 					}
 				}
 			}
-			
+
 			console.log('=== FINAL RESULTS ===');
 			console.log('Total tracked tasks found:', trackedTasks.length);
 			console.log('Tracked tasks:', trackedTasks);
-			
+
 			return { tasks: trackedTasks, debug };
 		} catch (error) {
 			debug.errorMessage = `Error: ${error.message}`;
@@ -336,7 +336,7 @@ class SettingTab extends PluginSettingTab {
 	}
 
 	display(): void {
-		const {containerEl} = this;
+		const { containerEl } = this;
 
 		containerEl.empty();
 
@@ -371,6 +371,7 @@ class SidebarView extends ItemView {
 	private refreshInterval: number | null = null;
 	private valueRotationInterval: number | null = null;
 	private currentValueIndex: number = 0;
+	private isRefreshing: boolean = false; // Add this flag
 
 	constructor(leaf: WorkspaceLeaf, plugin: MyPlugin) {
 		super(leaf);
@@ -411,274 +412,264 @@ class SidebarView extends ItemView {
 	}
 
 	async refresh() {
-		const container = this.containerEl.children[1];
-		container.empty();
-		container.addClass('dashboard-view');
-
-		// Add custom styles
-		const style = container.createEl('style');
-		style.textContent = `
-			.dashboard-view {
-				padding: 16px;
-				overflow-y: auto;
-			}
-			.dashboard-section {
-				margin-bottom: 24px;
-			}
-			.dashboard-header {
-				display: flex;
-				justify-content: space-between;
-				align-items: center;
-				margin-bottom: 16px;
-			}
-			.sync-container {
-				display: flex;
-				flex-direction: column;
-				align-items: flex-end;
-			}
-			.sync-button {
-				padding: 4px 8px;
-				font-size: 12px;
-				cursor: pointer;
-				border-radius: 4px;
-			}
-			.last-sync {
-				font-size: 10px;
-				color: var(--text-muted);
-				margin-top: 4px;
-			}
-			.weather-box {
-				background: var(--background-secondary);
-				padding: 12px;
-				border-radius: 8px;
-				margin-bottom: 12px;
-			}
-			.weather-box > div {
-				margin: 4px 0;
-			}
-			.tracked-task {
-				background: var(--background-secondary);
-				padding: 8px;
-				border-radius: 4px;
-				margin-bottom: 8px;
-				border-left: 3px solid var(--color-green);
-			}
-			.task-name {
-				font-weight: 500;
-				margin-bottom: 4px;
-			}
-			.task-meta {
-				font-size: 11px;
-				color: var(--text-muted);
-			}
-			.calendar-event {
-				background: var(--background-secondary);
-				padding: 8px;
-				border-radius: 4px;
-				margin-bottom: 8px;
-			}
-			.calendar-event-personal {
-				border-left: 3px solid var(--interactive-accent);
-			}
-			.calendar-event-family {
-				border-left: 3px solid var(--color-purple);
-			}
-			.event-time {
-				font-size: 11px;
-				color: var(--text-muted);
-				margin-top: 4px;
-			}
-			.values-box {
-				background: var(--background-secondary-alt);
-				padding: 12px;
-				border-radius: 8px;
-				margin-bottom: 12px;
-				border-left: 3px solid var(--color-orange);
-				line-height: 1.5;
-			}
-			.sleep-countdown {
-				background: var(--background-secondary-alt);
-				padding: 12px;
-				border-radius: 8px;
-				text-align: center;
-				border-left: 3px solid var(--color-purple);
-			}
-			.sleep-hours {
-				font-size: 28px;
-				font-weight: bold;
-				margin: 8px 0;
-			}
-			.sleep-warning {
-				color: var(--color-red);
-				font-weight: bold;
-				margin-top: 8px;
-			}
-		`;
-
-		// Header with sync button
-		const header = container.createDiv({ cls: 'dashboard-header' });
-		header.createEl('h3', { text: 'Dashboard' });
-		
-		const syncContainer = header.createDiv({ cls: 'sync-container' });
-		const syncButton = syncContainer.createEl('button', {
-			text: '🔄 Sync',
-			cls: 'sync-button'
-		});
-		
-		syncButton.addEventListener('click', async () => {
-			syncButton.disabled = true;
-			syncButton.textContent = '⏳ Syncing...';
-			await this.plugin.fetchDashboardData(true);
-			syncButton.disabled = false;
-			syncButton.textContent = '🔄 Sync';
-			this.refresh();
-		});
-
-		if (this.plugin.settings.cachedData) {
-			const lastSync = syncContainer.createDiv({ cls: 'last-sync' });
-			const timeSince = this.getTimeSince(this.plugin.settings.cachedData.timestamp);
-			lastSync.textContent = `Last synced: ${timeSince}`;
+		// Prevent concurrent refresh calls
+		if (this.isRefreshing) {
+			console.log('Refresh already in progress, skipping...');
+			return;
 		}
 
-		// Display cached data if available
-		if (this.plugin.settings.cachedData) {
-			const data = this.plugin.settings.cachedData.data;
+		this.isRefreshing = true;
 
-			// Sleep Countdown (only after 8 PM)
-			const now = new Date();
-			const hour = now.getHours();
-			
-			if (hour >= 20 || hour < 6) { // After 8 PM or before 6 AM
-				const sleepSection = container.createDiv({ cls: 'dashboard-section' });
-				sleepSection.createEl('h4', { text: '😴 Sleep Countdown' });
-				const sleepBox = sleepSection.createDiv({ cls: 'sleep-countdown' });
-				
-				// Create wake time for 6:15 AM Central Time
-				const wakeTime = new Date();
-				wakeTime.setHours(6, 15, 0, 0);
-				
-				// If current time is past 6:15 AM, set wake time to tomorrow
-				if (now > wakeTime) {
-					wakeTime.setDate(wakeTime.getDate() + 1);
+		try {
+			const container = this.containerEl.children[1];
+			container.empty();
+			container.addClass('dashboard-view');
+
+			// Add custom styles
+			const style = container.createEl('style');
+			style.textContent = `
+        .dashboard-view {
+          padding: 16px;
+          overflow-y: auto;
+        }
+        .dashboard-section {
+          margin-bottom: 24px;
+        }
+        .dashboard-header {
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+          margin-bottom: 16px;
+        }
+        .sync-container {
+          display: flex;
+          flex-direction: column;
+          align-items: flex-end;
+        }
+        .sync-button {
+          padding: 4px 8px;
+          font-size: 12px;
+          cursor: pointer;
+          border-radius: 4px;
+        }
+        .last-sync {
+          font-size: 10px;
+          color: var(--text-muted);
+          margin-top: 4px;
+        }
+        .weather-box {
+          background: var(--background-secondary);
+          padding: 12px;
+          border-radius: 8px;
+          margin-bottom: 12px;
+        }
+        .weather-box > div {
+          margin: 4px 0;
+        }
+        .tracked-task {
+          background: var(--background-secondary);
+          padding: 8px;
+          border-radius: 4px;
+          margin-bottom: 8px;
+          border-left: 3px solid var(--color-green);
+        }
+        .task-name {
+          font-weight: 500;
+          margin-bottom: 4px;
+        }
+        .task-meta {
+          font-size: 11px;
+          color: var(--text-muted);
+        }
+        .calendar-event {
+          background: var(--background-secondary);
+          padding: 8px;
+          border-radius: 4px;
+          margin-bottom: 8px;
+        }
+        .calendar-event-personal {
+          border-left: 3px solid var(--interactive-accent);
+        }
+        .calendar-event-family {
+          border-left: 3px solid var(--color-purple);
+        }
+        .event-time {
+          font-size: 11px;
+          color: var(--text-muted);
+          margin-top: 4px;
+        }
+        .values-box {
+          background: var(--background-secondary-alt);
+          padding: 12px;
+          border-radius: 8px;
+          margin-bottom: 12px;
+          border-left: 3px solid var(--color-orange);
+          line-height: 1.5;
+        }
+        .sleep-countdown {
+          background: var(--background-secondary-alt);
+          padding: 12px;
+          border-radius: 8px;
+          text-align: center;
+          border-left: 3px solid var(--color-purple);
+        }
+        .sleep-hours {
+          font-size: 28px;
+          font-weight: bold;
+          margin: 8px 0;
+        }
+        .sleep-warning {
+          color: var(--color-red);
+          font-weight: bold;
+          margin-top: 8px;
+        }
+      `;
+
+			// Header with sync button
+			const header = container.createDiv({ cls: 'dashboard-header' });
+			header.createEl('h3', { text: 'Dashboard' });
+
+			const syncContainer = header.createDiv({ cls: 'sync-container' });
+			const syncButton = syncContainer.createEl('button', {
+				text: '🔄 Sync',
+				cls: 'sync-button'
+			});
+
+			syncButton.addEventListener('click', async () => {
+				syncButton.disabled = true;
+				syncButton.textContent = '⏳ Syncing...';
+				await this.plugin.fetchDashboardData(true);
+				syncButton.disabled = false;
+				syncButton.textContent = '🔄 Sync';
+				this.refresh();
+			});
+
+			if (this.plugin.settings.cachedData) {
+				const lastSync = syncContainer.createDiv({ cls: 'last-sync' });
+				const timeSince = this.getTimeSince(this.plugin.settings.cachedData.timestamp);
+				lastSync.textContent = `Last synced: ${timeSince}`;
+			}
+
+			// Display cached data if available
+			if (this.plugin.settings.cachedData) {
+				const data = this.plugin.settings.cachedData.data;
+
+				// Sleep Countdown (only after 8 PM)
+				const now = new Date();
+				const hour = now.getHours();
+
+				if (hour >= 20 || hour < 6) { // After 8 PM or before 6 AM
+					const sleepSection = container.createDiv({ cls: 'dashboard-section' });
+					sleepSection.createEl('h4', { text: '😴 Sleep Countdown' });
+					const sleepBox = sleepSection.createDiv({ cls: 'sleep-countdown' });
+
+					// Create wake time for 6:15 AM Central Time
+					const wakeTime = new Date();
+					wakeTime.setHours(6, 15, 0, 0);
+
+					// If current time is past 6:15 AM, set wake time to tomorrow
+					if (now > wakeTime) {
+						wakeTime.setDate(wakeTime.getDate() + 1);
+					}
+
+					const diff = wakeTime.getTime() - now.getTime();
+					const hours = Math.floor(diff / (1000 * 60 * 60));
+					const minutes = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60));
+
+					sleepBox.createEl('div', { text: 'Hours until wake time (6:15 AM)' });
+					sleepBox.createEl('div', { text: `${hours}h ${minutes}m`, cls: 'sleep-hours' });
+
+					if (hours < 7) {
+						sleepBox.createEl('div', {
+							text: '⚠️ You won\'t get 7+ hours of sleep!',
+							cls: 'sleep-warning'
+						});
+					}
 				}
-				
-				const diff = wakeTime.getTime() - now.getTime();
-				const hours = Math.floor(diff / (1000 * 60 * 60));
-				const minutes = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60));
-				
-				sleepBox.createEl('div', { text: 'Hours until wake time (6:15 AM)' });
-				sleepBox.createEl('div', { text: `${hours}h ${minutes}m`, cls: 'sleep-hours' });
-				
-				if (hours < 7) {
-					sleepBox.createEl('div', { 
-						text: '⚠️ You won\'t get 7+ hours of sleep!',
-						cls: 'sleep-warning'
+
+				// Weather Section
+				const weatherSection = container.createDiv({ cls: 'dashboard-section' });
+				weatherSection.createEl('h4', { text: '🌤️ Weather' });
+				const weatherBox = weatherSection.createDiv({ cls: 'weather-box' });
+				weatherBox.createEl('div', { text: `🌡️ Current: ${data.weather.currentTemp}` });
+				weatherBox.createEl('div', { text: `📈 High: ${data.weather.todayHigh} | 📉 Low: ${data.weather.todayLow}` });
+				weatherBox.createEl('div', { text: `🌧️ ${data.weather.nextRain}` });
+
+				// Tracked Tasks Section
+				const { tasks: trackedTasks, debug } = await this.plugin.getTrackedTasks();
+				const trackedSection = container.createDiv({ cls: 'dashboard-section' });
+				trackedSection.createEl('h4', { text: '✅ Tracked Tasks' });
+
+				if (trackedTasks.length === 0) {
+					trackedSection.createEl('p', { text: 'No tracked tasks', cls: 'text-muted' });
+				} else {
+					trackedTasks.forEach(task => {
+						const taskBox = trackedSection.createDiv({ cls: 'tracked-task' });
+
+						// Remove the [[ ]] if present for cleaner display
+						const cleanTaskName = task.task.replace(/\[\[|\]\]/g, '');
+						taskBox.createEl('div', { text: cleanTaskName, cls: 'task-name' });
+
+						const metaParts = [];
+						if (task.note) {
+							metaParts.push(`- ${task.note}`);
+						}
+
+						if (metaParts.length > 0) {
+							taskBox.createDiv({ text: metaParts.join(' • '), cls: 'task-meta' });
+						}
 					});
 				}
-			}
 
-			// Weather Section
-			const weatherSection = container.createDiv({ cls: 'dashboard-section' });
-			weatherSection.createEl('h4', { text: '🌤️ Weather' });
-			const weatherBox = weatherSection.createDiv({ cls: 'weather-box' });
-			weatherBox.createEl('div', { text: `🌡️ Current: ${data.weather.currentTemp}` });
-			weatherBox.createEl('div', { text: `📈 High: ${data.weather.todayHigh} | 📉 Low: ${data.weather.todayLow}` });
-			weatherBox.createEl('div', { text: `🌧️ ${data.weather.nextRain}` });
+				// Next 48 Hours Section
+				const next48Section = container.createDiv({ cls: 'dashboard-section' });
+				next48Section.createEl('h4', { text: '📅 Next 48 Hours' });
 
-			// Tracked Tasks Section
-			const { tasks: trackedTasks, debug } = await this.plugin.getTrackedTasks();
-			const trackedSection = container.createDiv({ cls: 'dashboard-section' });
-			trackedSection.createEl('h4', { text: '✅ Tracked Tasks' });
-			
-			// Debug Info Display
-			// const debugBox = trackedSection.createDiv({ 
-			// 	cls: 'weather-box',
-			// 	attr: { style: 'font-size: 11px; font-family: monospace; background: var(--background-modifier-error-rgb); border-left: 3px solid var(--color-orange);' }
-			// });
-			// debugBox.createEl('div', { text: `🔍 DEBUG INFO`, attr: { style: 'font-weight: bold; margin-bottom: 8px;' } });
-			// debugBox.createEl('div', { text: `File Path: ${debug.filePath}` });
-			// debugBox.createEl('div', { text: `File Found: ${debug.fileFound ? '✅ Yes' : '❌ No'}` });
-			// if (debug.fileFound) {
-			// 	debugBox.createEl('div', { text: `Total Lines: ${debug.totalLines}` });
-			// 	debugBox.createEl('div', { text: `Table Rows Found: ${debug.tableRowsFound}` });
-			// 	debugBox.createEl('div', { text: `Tracked Tasks Found: ${debug.trackedTasksFound}` });
-			// }
-			// if (debug.errorMessage) {
-			// 	debugBox.createEl('div', { text: `Error: ${debug.errorMessage}`, attr: { style: 'color: var(--color-red); font-weight: bold;' } });
-			// }
-			// if (debug.sampleRows && debug.sampleRows.length > 0) {
-			// 	debugBox.createEl('div', { text: `Sample Rows:`, attr: { style: 'margin-top: 8px; font-weight: bold;' } });
-			// 	debug.sampleRows.forEach(row => {
-			// 		debugBox.createEl('div', { text: `  ${row}`, attr: { style: 'margin-left: 8px;' } });
-			// 	});
-			// }
-			
-			if (trackedTasks.length === 0) {
-				trackedSection.createEl('p', { text: 'No tracked tasks', cls: 'text-muted' });
+				if (data.calendar.next48Hours.length === 0) {
+					next48Section.createEl('p', { text: 'No events scheduled', cls: 'text-muted' });
+				} else {
+					data.calendar.next48Hours.forEach(event => {
+						const calendarClass = event.calendar === 'deltamaze@gmail.com'
+							? 'calendar-event calendar-event-personal'
+							: 'calendar-event calendar-event-family';
+						const eventBox = next48Section.createDiv({ cls: calendarClass });
+						eventBox.createEl('div', { text: event.summary });
+						const timeText = this.formatEventTime(event.start, event.end);
+						eventBox.createDiv({ text: timeText, cls: 'event-time' });
+					});
+				}
+
+				// Upcoming Weekend Section
+				const weekendSection = container.createDiv({ cls: 'dashboard-section' });
+				weekendSection.createEl('h4', { text: `🎉 ${data.calendar.upcomingWeekend.date}` });
+
+				if (data.calendar.upcomingWeekend.events.length === 0) {
+					weekendSection.createEl('p', { text: 'No events scheduled', cls: 'text-muted' });
+				} else {
+					data.calendar.upcomingWeekend.events.forEach(event => {
+						const calendarClass = event.calendar === 'deltamaze@gmail.com'
+							? 'calendar-event calendar-event-personal'
+							: 'calendar-event calendar-event-family';
+						const eventBox = weekendSection.createDiv({ cls: calendarClass });
+						eventBox.createEl('div', { text: event.summary });
+						const timeText = this.formatEventTime(event.start, event.end);
+						eventBox.createDiv({ text: timeText, cls: 'event-time' });
+					});
+				}
 			} else {
-				trackedTasks.forEach(task => {
-					const taskBox = trackedSection.createDiv({ cls: 'tracked-task' });
-					
-					// Remove the [[ ]] if present for cleaner display
-					const cleanTaskName = task.task.replace(/\[\[|\]\]/g, '');
-					taskBox.createEl('div', { text: cleanTaskName, cls: 'task-name' });
-					
-					const metaParts = [];
-					if (task.note) {
-						metaParts.push(`- ${task.note}`);
-					}
-					
-					
-					if (metaParts.length > 0) {
-						taskBox.createDiv({ text: metaParts.join(' • '), cls: 'task-meta' });
-					}
-				});
+				container.createEl('p', { text: 'No data available. Click sync to load.' });
 			}
 
-			// Next 48 Hours Section
-			const next48Section = container.createDiv({ cls: 'dashboard-section' });
-			next48Section.createEl('h4', { text: '📅 Next 48 Hours' });
-			
-			if (data.calendar.next48Hours.length === 0) {
-				next48Section.createEl('p', { text: 'No events scheduled', cls: 'text-muted' });
-			} else {
-				data.calendar.next48Hours.forEach(event => {
-					const calendarClass = event.calendar === 'deltamaze@gmail.com' 
-						? 'calendar-event calendar-event-personal' 
-						: 'calendar-event calendar-event-family';
-					const eventBox = next48Section.createDiv({ cls: calendarClass });
-					eventBox.createEl('div', { text: event.summary });
-					const timeText = this.formatEventTime(event.start, event.end);
-					eventBox.createDiv({ text: timeText, cls: 'event-time' });
-				});
-			}
+			// Values Section
+			const valuesSection = container.createDiv({ cls: 'dashboard-section' });
+			valuesSection.createEl('h4', { text: '💪 Daily Reminder' });
+			const valuesBox = valuesSection.createDiv({ cls: 'values-box' });
+			valuesBox.createEl('p', { text: VALUES[this.currentValueIndex] });
 
-			// Upcoming Weekend Section
-			const weekendSection = container.createDiv({ cls: 'dashboard-section' });
-			weekendSection.createEl('h4', { text: `🎉 ${data.calendar.upcomingWeekend.date}` });
-			
-			if (data.calendar.upcomingWeekend.events.length === 0) {
-				weekendSection.createEl('p', { text: 'No events scheduled', cls: 'text-muted' });
-			} else {
-				data.calendar.upcomingWeekend.events.forEach(event => {
-					const calendarClass = event.calendar === 'deltamaze@gmail.com' 
-						? 'calendar-event calendar-event-personal' 
-						: 'calendar-event calendar-event-family';
-					const eventBox = weekendSection.createDiv({ cls: calendarClass });
-					eventBox.createEl('div', { text: event.summary });
-					const timeText = this.formatEventTime(event.start, event.end);
-					eventBox.createDiv({ text: timeText, cls: 'event-time' });
-				});
-			}
-		} else {
-			container.createEl('p', { text: 'No data available. Click sync to load.' });
+		} finally {
+			// Always reset the flag when done
+			this.isRefreshing = false;
 		}
-
-		// Values Section
-		const valuesSection = container.createDiv({ cls: 'dashboard-section' });
-		valuesSection.createEl('h4', { text: '💪 Daily Reminder' });
-		const valuesBox = valuesSection.createDiv({ cls: 'values-box' });
-		valuesBox.createEl('p', { text: VALUES[this.currentValueIndex] });
 	}
 
 	getTimeSince(timestamp: number): string {
@@ -687,7 +678,7 @@ class SidebarView extends ItemView {
 		const minutes = Math.floor(diff / (1000 * 60));
 		const hours = Math.floor(minutes / 60);
 		const days = Math.floor(hours / 24);
-		
+
 		if (days > 0) {
 			return `${days}d ${hours % 24}h ago`;
 		} else if (hours > 0) {
@@ -708,26 +699,26 @@ class SidebarView extends ItemView {
 			};
 			return startDate.toLocaleDateString('en-US', dateOptions) + ' • All day';
 		}
-		
+
 		const startDate = new Date(start);
 		const endDate = new Date(end);
-		
-		const options: Intl.DateTimeFormatOptions = { 
-			hour: 'numeric', 
+
+		const options: Intl.DateTimeFormatOptions = {
+			hour: 'numeric',
 			minute: '2-digit',
-			hour12: true 
+			hour12: true
 		};
-		
+
 		const startTime = startDate.toLocaleTimeString('en-US', options);
 		const endTime = endDate.toLocaleTimeString('en-US', options);
-		
+
 		const dateOptions: Intl.DateTimeFormatOptions = {
 			weekday: 'short',
 			month: 'short',
 			day: 'numeric'
 		};
 		const dateStr = startDate.toLocaleDateString('en-US', dateOptions);
-		
+
 		return `${dateStr} • ${startTime} - ${endTime}`;
 	}
 }
