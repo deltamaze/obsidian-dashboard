@@ -237,16 +237,16 @@ export default class MyPlugin extends Plugin {
 
 						// Store sample info for first 5 rows
 						if (debug.sampleRows && debug.sampleRows.length < 8) {
-							debug.sampleRows.push(`Line ${lineNumber}: ${columns.length} cols, Tracked="${columns[3]}", Task="${columns[0]?.substring(0, 40)}"`);
-						}
+						debug.sampleRows.push(`Line ${lineNumber}: ${columns.length} cols, Tracked="${columns[2]}", Task="${columns[0]?.substring(0, 40)}"`);
+					}
 
-						// Columns: Task (0), Jira (1), Sched (2), Tracked (3), Updated (4)
-						if (columns.length >= 4) {
-							let task = columns[0];
+					// Columns: Task (0), Jira (1), Tracked (2), Updated (3)
+					if (columns.length >= 3) {
+						let task = columns[0];
 
-							// const note = columns[1];
-							const tracked = columns[3];
-							const updated = columns.length >= 5 ? columns[4] : '';
+						// const note = columns[1];
+						const tracked = columns[2];
+						const updated = columns.length >= 4 ? columns[3] : '';
 							// I want my note to split up the task if it contains a space, I want everything before the first space as the task, and everything after the first space as a note
 							const note = task.includes(' ') ? task.substring(task.indexOf(' ') + 1) : '';
 							task = task.includes(' ') ? task.substring(0, task.indexOf(' ')) : task;
